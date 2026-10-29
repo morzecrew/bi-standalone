@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the frontend.
 - Parameters for the ports, the API's workers, the log level, the model
   endpoint (`llm_base_url`, `llm_model`) and the Telegram bot
-  (`telegram_enabled`, `app_url`); every secret generated at `init` but
+  (`telegram_enabled`, its links to `--domain`); every secret generated at `init` but
   `admin_password`, with placeholders for `llm_api_key` and
   `telegram_bot_token`.
 - The dev-only task `seed` (`morzer task run seed -- --account beauty`), which

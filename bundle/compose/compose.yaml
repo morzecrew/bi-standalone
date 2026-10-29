@@ -40,7 +40,9 @@ x-backend-environment: &backend-environment
   # The bot is off until the operator sets its token and turns it on.
   TELEGRAM__ENABLED: ${BI_PARAM_TELEGRAM_ENABLED:-false}
   TELEGRAM__BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
-  TELEGRAM__APP_URL: ${BI_PARAM_APP_URL:-}
+  # The messages link to the domain the edge serves; without --domain they
+  # carry no links.
+  TELEGRAM__APP_URL: ${BI_DOMAIN:+https://${BI_DOMAIN}}
 
 x-backend-depends-on: &backend-depends-on
   postgres:

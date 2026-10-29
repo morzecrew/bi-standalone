@@ -78,11 +78,6 @@ parameters:
     default: false
     description: Send the summaries and alerts through the Telegram bot whose token is the telegram_bot_token secret
     services: [backend, worker]
-  app_url:
-    type: string
-    default: ""
-    description: Where the system is reached, for the links in Telegram messages (https://bi.example.com)
-    services: [backend, worker]
 # Infrastructure pinned by digest as `repo:tag@sha256:`, the tag kept for
 # Renovate. The three components carry `main` and an all-zero digest until
 # scripts/pin.sh writes their real digests.

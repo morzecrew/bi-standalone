@@ -78,7 +78,7 @@ artifact, and moves two rolling tags. A version is immutable once published.
 | Tag | Channel | Built from |
 |---|---|---|
 | `:main` | **dev** — a sandbox that may be broken | every component merge, as a pre-release `<next-patch>-dev.<n>.g<sha>` |
-| `:stable` | **customer** — released components only | a `vX.Y.Z` tag on `main`, as the release `X.Y.Z` |
+| `:stable` | **customer** — dev builds a person promoted | a `vX.Y.Z` tag on `main`, as the release `X.Y.Z` of the component digests pinned there |
 
 An exact version — `ghcr.io/morzecrew/bi-standalone:1.4.0` — can be installed
 or staged at any time, and is the same artifact `:stable` pointed at that day.
@@ -478,14 +478,19 @@ sudo morzer apply
 
 ## Rehearsing a bundle
 
-`scripts/rehearse.sh` rehearses on a workstation what CI's smoke jobs prove on
-the runner — install the published bundle, back it up and restore it, update to
-the working tree's `bundle/`, and roll back — before a pull request is opened.
+bundle-ci's `rehearse.sh` rehearses on a workstation what CI's smoke jobs prove
+on the runner — install the published bundle, run the smoke hooks in
+`.github/smoke.d` (the task listing, a backup and restore, the database
+password rotation), update to the working tree's `bundle/`, and roll back —
+before a pull request is opened. `just rehearse` runs it from a bundle-ci
+checkout (`BUNDLE_CI`, or `../bundle-ci`):
 
 ```console
-scripts/rehearse.sh                     # from :main
-scripts/rehearse.sh --from <oci ref>    # from another published bundle
-scripts/rehearse.sh --keep              # leave the container and its volume
+git clone https://github.com/morzecrew/bundle-ci ../bundle-ci
+export REHEARSE_PUBKEY="$(gh variable get MINISIGN_DEV_PUBKEY)"
+just rehearse                       # from :main
+just rehearse --from <oci ref>      # from another published bundle
+just rehearse --keep                # leave the container and its volume
 ```
 
 Everything runs in a privileged `docker:29.7.2-dind` container named
@@ -502,7 +507,11 @@ public key that signed the `--from` bundle must be in `REHEARSE_PUBKEY`.
 
 ## CI runners
 
-Every workflow job runs on `${{ vars.RUNS_ON || 'ubuntu-24.04' }}`: the
+The workflows here are thin callers of
+[morzecrew/bundle-ci](https://github.com/morzecrew/bundle-ci)'s reusable
+workflows, pinned to one bundle-ci release by its commit (`# v0.1.2` beside
+each); what only this bundle checks lives in `.github/smoke.d`. Every workflow
+job runs on `${{ vars.RUNS_ON || 'ubuntu-24.04' }}`: the
 repository variable `RUNS_ON` names the runner label — `self-hosted` today —
 and, unset, the jobs run on GitHub-hosted `ubuntu-24.04` with the same steps.
 
@@ -512,7 +521,7 @@ A runner, self-hosted or GitHub-hosted, needs:
   amd64 only.
 - **A Docker that allows privileged containers.** Each smoke job runs the
   bundle inside a privileged `docker:29.7.2-dind` rig with its own Docker
-  volume, and `scripts/rehearse.sh` uses the same rig on a workstation.
+  volume, and bundle-ci's `rehearse.sh` uses the same rig on a workstation.
 - **Room for one rig:** the release's 20 GiB preflight under `/var/lib/bi`
   plus the bundle's images, all held by that rig's container and volume.
 - **No `sudo` for its user.** Jobs install their tools in a job container, in
@@ -521,8 +530,8 @@ A runner, self-hosted or GitHub-hosted, needs:
 - **A proxy containers can reach, if it has one.** The runner hands its
   `http(s)_proxy` to every job container, where `127.0.0.1` is the container's
   own loopback. Point it at an address containers reach, such as the Docker
-  bridge's `172.17.0.1`, with the proxy listening there. `rig.sh` passes a
-  non-loopback proxy into each rig.
+  bridge's `172.17.0.1`, with the proxy listening there. bundle-ci's `rig.sh`
+  passes a non-loopback proxy into each rig.
 
 ### What the repositories need
 
@@ -530,46 +539,55 @@ A runner, self-hosted or GitHub-hosted, needs:
   `MINISIGN_DEV_PUBKEY` and `MINISIGN_RELEASE_PUBKEY`; the secrets
   `MINISIGN_DEV_KEY` and `MINISIGN_RELEASE_KEY` (minisign secret keys,
   `minisign -G`), and `GH_PAT` for the nightly retention; a seed tag `v0.0.0`,
-  which `scripts/version.sh` counts dev versions from; and pushes to `main` by
+  which bundle-ci's `version.sh` counts dev versions from; and pushes to `main` by
   `github-actions[bot]`, which commits the pins.
 - **bi-backend and bi-frontend:** the variable `RELEASE_BOT_APP_ID` and the
   secret `RELEASE_BOT_PRIVATE_KEY` of the GitHub App that may dispatch to this
   repository (installed on it), and `GH_PAT` for their retention. Without the
   App their images still publish; this repository picks them up on its
   six-hourly schedule instead of at once.
-- **The packages** `bi-backend`, `bi-migrations` and `bi-frontend`: read access
-  for this repository's Actions (package settings → Manage Actions access), so
-  its `GITHUB_TOKEN` resolves their digests.
+- **The packages** `bi-backend`, `bi-migrations` and `bi-frontend`: the
+  **Write** role for this repository's Actions (package settings → Manage
+  Actions access). Read resolves their digests; Write lets a release tag the
+  images it pins `bundle-X.Y.Z`, which keeps them from the components'
+  retention. Without it a release fails at that tag, and nothing is published.
 
 ## Cutting a release
 
-A release is made of component releases, so it is cut in this order:
+A release promotes a dev build: it ships the component digests `main.yml`
+committed, which the dev VM installed and CI smoke-tested. The components are
+not tagged or rebuilt. It is cut in this order:
 
-1. **Release each component.** A `vX.Y.Z` tag on bi-backend's `main`
-   publishes `bi-backend:X.Y.Z` and `bi-migrations:X.Y.Z`; one on
-   bi-frontend's `main` publishes `bi-frontend:X.Y.Z`.
-2. **Name them here, in one pull request.** In `components.yaml`, each
-   component's `version`, its `notes`, and its `rollback_safe` — `true` only
-   when its previous release can run on what this one leaves behind. In
-   `bundle/RELEASE.md`, what changed for the operator.
-3. **Tag `main`** once that pull request is merged:
+1. **Prepare it in one pull request.** In `components.yaml`, each component's
+   `rollback_safe`: `true` only when its previous release can run on what this
+   one leaves behind. In `bundle/RELEASE.md`, what changed for the operator.
+2. **Let the dev VM install it.** The merge is a `bundle/` commit, so `:main`
+   publishes it, and the VM installs it on its next tick.
+3. **Tag the commit the dev VM runs.** `sudo morzer status` names it: release
+   `0.0.1-dev.42.g1a2b3c4` was built from `1a2b3c4`.
 
    ```console
-   git tag vA.B.C origin/main && git push origin vA.B.C
+   git tag vA.B.C 1a2b3c4 && git push origin vA.B.C
    ```
 
 `release.yml` then:
 - refuses a tag that is not `vX.Y.Z` on `main`;
-- pins the versions `components.yaml` names with `scripts/pin.sh --release`,
-  in the runner (the pins are not committed);
+- keeps the digests the tagged commit pins and names them `bundle-A.B.C`, with
+  bundle-ci's `pin.sh --release A.B.C`, in the runner (nothing is committed). It
+  refuses a digest the registry no longer holds;
 - builds `A.B.C` and signs it with the release key;
 - smoke-tests a fresh install and an update from the current `:stable`;
-- publishes `:A.B.C` and moves `:stable`.
+- tags each component image `bundle-A.B.C`, publishes `:A.B.C` and moves
+  `:stable`.
 
 A version already published fails the run: a version never changes content.
 Before the first release there is no `:stable`, and only the fresh install is
-proven. Until step 1 has happened once, `components.yaml` holds the `0.0.0`
-placeholders, and a tag here fails at the pin.
+proven.
+
+**Tag soon after the dev VM settles.** A component image is pruned once it is
+past the 3 newest `sha-*` builds of its repository and more than a day old,
+unless a release has tagged it. A commit whose images are gone cannot be
+released, and `pin.sh` refuses it by name.
 
 ## Housekeeping, and why not to prune images
 
@@ -580,7 +598,9 @@ retained images and untagged versions, not by the releases themselves — and
 CI keeps both tight. The registry keeps the last 5 `*-dev.*` versions, drops
 untagged versions after a day, and never touches `:main`, `:stable` or any
 `X.Y.Z`, which is what lets a dev VM roll back to a bundle from earlier in the
-week and still install any released version.
+week and still install any released version. The component repositories keep
+the last 3 `sha-*` builds and every image a release tagged `bundle-X.Y.Z`:
+their retention never deletes a version with a tag its filter does not match.
 
 **Do not run `docker image prune -af` or `docker system prune -a`.** morzer
 0.7.0 removes a pruned release's images itself, and a manual prune
@@ -606,19 +626,20 @@ is down.
 
 The bundle's gates and helpers are `just` tasks; `just check` runs every gate
 CI runs before a bundle is built. They need `yq` v4, `docker`, `shellcheck`,
-`actionlint`, `zizmor` and `morzer`; `.github/workflows/scripts/install-tools.sh`
-installs morzer, yq and the rest into `BIN_DIR` without sudo.
+`actionlint`, `zizmor` and `morzer`; bundle-ci's `scripts/tools.sh` installs
+morzer, yq and the rest into `BIN_DIR` without sudo. `pin`, `version` and
+`rehearse` run bundle-ci's scripts from a checkout of it (`BUNDLE_CI`, or
+`../bundle-ci`).
 
 ```console
 just check                 # every gate below
 just lint                  # actionlint and zizmor over the workflows
 just shellcheck            # every script and hook
-just test                  # the pin and version scripts' tests
 just compose               # the Compose file with only what morzer gives it
 just verify                # morzer release build and verify --render-check
 just edge-smoke            # the edge's routing and body limit, against stand-ins
-just pin                   # pin the components' main digests and the schema (--release: components.yaml)
+just pin                   # pin the components' main digests and the schema (--release X.Y.Z: promote)
 just version               # the version the next dev bundle gets
-just rehearse              # install, back up, restore, update and roll back in a throwaway rig
+just rehearse              # install, run the smoke hooks, update and roll back in a throwaway rig
 ```
 

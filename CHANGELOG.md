@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (install, task listing, backup and restore, database password rotation,
   update and rollback) and published to `ghcr.io/morzecrew/bi-standalone` as
   `:main`; a `vX.Y.Z` tag publishes the release `X.Y.Z`, signed with the
-  release key, and moves `:stable`.
+  release key, and moves `:stable`. A release ships the component images a dev
+  build pinned and the dev VM ran, and tags each `bundle-X.Y.Z` so the
+  components' retention keeps it. The pipeline is morzecrew/bundle-ci's.
 - `just` tasks for the gates (`just check`) and the pin, version and rehearsal
   helpers.

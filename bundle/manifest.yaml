@@ -1,0 +1,181 @@
+# yaml-language-server: $schema=https://morzecrew.github.io/morzer/schemas/selfhost-v1alpha1-manifest.json
+#
+# The whole BI system as one morzer release: bi-backend, bi-frontend and
+# Postgres behind one Caddy edge.
+api_version: selfhost/v1alpha1
+kind: application-release
+metadata:
+  name: bi
+  # Stamped by `morzer release build --version`, never by hand.
+  version: 0.0.0
+  description: BI system -- backend, worker, frontend and Postgres behind one edge
+  vendor: morzecrew
+  release_notes: RELEASE.md
+providers:
+  runtime: {name: compose}
+  secrets: {name: sops-age}
+  health: {name: http}
+runtimes:
+  compose:
+    files:
+      - compose/compose.yaml
+    options:
+      # Every volume lives under this name; changing it orphans the data.
+      project: bi
+requirements:
+  architectures: [amd64]
+  tools:
+    # The first releases that mount an image as a volume, with a subpath:
+    # Engine 28.0.0 (API 1.48) and Compose v2.35.0. flyway reads the
+    # migrations that way.
+    docker: ">=28.0.0"
+    compose: ">=2.35.0"
+  memory: 4GiB
+  disk: 20GiB
+  ports:
+    - "{{ .Parameters.http_port }}"
+    - "{{ .Parameters.https_port }}"
+    - "{{ .Parameters.health_port }}"
+parameters:
+  http_port:
+    type: port
+    default: 80
+    description: Port the edge serves HTTP on
+    services: [edge]
+  https_port:
+    type: port
+    default: 443
+    description: Port the edge serves HTTPS on
+    services: [edge]
+  health_port:
+    type: port
+    default: 8081
+    description: Loopback port the edge serves plain HTTP on, for health checks
+    services: [edge]
+  api_workers:
+    type: int
+    default: 2
+    description: API worker processes in the backend
+    services: [backend]
+  log_level:
+    type: enum
+    values: [debug, info, warning, error]
+    default: info
+    description: Log verbosity of the backend and the worker
+    services: [backend, worker]
+  llm_base_url:
+    type: string
+    default: https://api.deepseek.com
+    description: The OpenAI-compatible endpoint the chat, the proposals, the spec author and the summaries ask; questions and the data read to answer them go there
+    services: [backend, worker]
+  llm_model:
+    type: string
+    default: deepseek-flash
+    description: The model asked of llm_base_url
+    services: [backend, worker]
+  telegram_enabled:
+    type: bool
+    default: false
+    description: Send the summaries and alerts through the Telegram bot whose token is the telegram_bot_token secret
+    services: [backend, worker]
+  app_url:
+    type: string
+    default: ""
+    description: Where the system is reached, for the links in Telegram messages (https://bi.example.com)
+    services: [backend, worker]
+# Infrastructure pinned by digest as `repo:tag@sha256:`, the tag kept for
+# Renovate. The three components carry `main` and an all-zero digest until
+# scripts/pin.sh writes their real digests.
+images:
+  postgres: ghcr.io/morzecrew/postgres:18.6@sha256:4a8e0a615b016b4eca04b391a76eb98af770cae540a1fa57e1980bc9909a51de
+  flyway: ghcr.io/morzecrew/flyway:13.11@sha256:82de3f12a8be91b2f588a33a26345ee7ba49797c29568b4241e4163432e0deeb
+  caddy: ghcr.io/morzecrew/caddy:2.11.7@sha256:fa5515ca8c92cfc1731a518da984834ff5fceb8bf3380bf453a60f9710d47c9f
+  backend: ghcr.io/morzecrew/bi-backend:main@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  migrations: ghcr.io/morzecrew/bi-migrations:main@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  frontend: ghcr.io/morzecrew/bi-frontend:main@sha256:0000000000000000000000000000000000000000000000000000000000000000
+secrets:
+  source: /etc/bi/secrets.sops.yaml
+  render_to: /run/bi/secrets
+  schema: secrets.schema.yaml
+operations:
+  # All four steps run on every apply and update, before services start, and
+  # all are harmless to repeat: db-password sets the role to the value the
+  # apply already rendered, flyway with nothing pending exits 0, bootstrap
+  # keeps the administrator and workspace that exist, and schema-version only
+  # reads. No step seeds data.
+  migrate:
+    # First, ahead of flyway and every other step that connects: flyway and the
+    # services authenticate as `postgres` with the rendered
+    # `postgres_password`, so a rotation of that secret reaches the role only
+    # if the role carries it before anything connects with it as that.
+    - kind: hook
+      command: ["hooks/db-password"]
+      timeout: 2m
+    - kind: runtime-service
+      service: flyway
+      timeout: 15m
+    - kind: runtime-service
+      service: bootstrap
+      timeout: 5m
+    # morzer records each release's `schema_at_install` from this step, so
+    # `rollback`, `update`'s compatibility check and the unattended gate judge
+    # against the schema the database holds rather than warning that it is
+    # unknown.
+    - kind: hook
+      command: ["hooks/schema-version"]
+      timeout: 1m
+  smoke_test:
+    kind: hook
+    command: ["hooks/smoke-test"]
+    timeout: 5m
+# What an operator runs by name with `morzer task run`, through the backend
+# image's entrypoint, which loads the `*_FILE` secrets. `seed` runs a service
+# behind the Compose profile `demo`, which starts the source emulators beside
+# it and leaves them running for the workspace's hourly loads.
+tasks:
+  seed:
+    description: "A demo workspace from the source emulators (-- --account shop-custom|shop-vanilla|beauty --workspace NAME)"
+    service: seed
+    command: [seed, --emulator, "http://emulator:8100"]
+    args: true
+    modes: [dev]
+    timeout: 30m
+backup:
+  volumes:
+    postgres-data: {consistency: cold}
+    # Certificates and ACME state, written once and read back.
+    edge-data: {consistency: hot}
+# Both on the edge's loopback health port, which always serves plain HTTP.
+health:
+  checks:
+    - name: edge
+      type: http
+      url: "http://127.0.0.1:{{ .Parameters.health_port }}/__platform_healthz"
+      timeout: 5s
+      start_period: 60s
+    - name: api
+      type: http
+      url: "http://127.0.0.1:{{ .Parameters.health_port }}/health"
+      timeout: 5s
+      start_period: 120s
+compatibility:
+  # The migrations image's `tech.morze.bi.schema` label, written by
+  # scripts/pin.sh; 0 until it runs. Each release reads only the schema it
+  # produces.
+  database_schema_produces: 0
+  database_schema_min: 0
+  database_schema_max: 0
+  # Between two releases on one schema -- where `database_schema_min` = `max` =
+  # `produces` -- morzer rolls back, and returns from a failed update by itself
+  # (exit 11). Across a schema change it refuses the rollback, naming the
+  # pre-update backup, and a failed update stops at exit 12 for a restore.
+  # `scripts/pin.sh --release` writes this from components.yaml's
+  # `backend.rollback_safe` and `frontend.rollback_safe` together, true only
+  # when both are; plain `scripts/pin.sh` leaves it as committed.
+  rollback_safe: true
+  # The first manager that reads `tasks:`, and whose `update` generates a
+  # secret a release adds.
+  min_manager_version: "0.8.0"
+retention:
+  releases: 3
+  backups: 7

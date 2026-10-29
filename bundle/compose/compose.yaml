@@ -1,0 +1,245 @@
+# The BI system behind one origin. `edge` is the only service that publishes
+# ports; everything else talks on the project network.
+#
+# Compose sees only what morzer gives it: BI_IMAGE_<KEY> for each pinned image,
+# BI_PARAM_<NAME> for each parameter, BI_SECRETS_DIR, BI_RELEASE_DIR, BI_DOMAIN
+# (absent without --domain) and BI_VERSION. An image is named only through its
+# BI_IMAGE_ variable, so what runs is what the manifest pins.
+#
+# Secrets reach a container only as files under /run/secrets, read through a
+# *_FILE variable; secrets.schema.yaml gives each file to the user that reads it.
+
+# The backend's settings, shared by backend, worker, bootstrap and seed. It names
+# only files all of them are given: envfile-exec exits 78 on one it cannot read.
+x-backend-environment: &backend-environment
+  APP__DEPLOYMENT: compose
+  APP__LOG_LEVEL: ${BI_PARAM_LOG_LEVEL:-info}
+  # Straight to Postgres: the worker holds a session advisory lock per
+  # workspace's build and SQLMesh keeps its state in the database, neither of
+  # which survives transaction pooling.
+  POSTGRES__HOST: postgres
+  POSTGRES__PORT: 5432
+  POSTGRES__USER: postgres
+  # bi-backend's settings ignore an unknown name, and envfile-exec reads a
+  # `*_FILE` only for the names its image lists, so each name here is theirs.
+  POSTGRES__DATABASE: bi
+  POSTGRES__PASSWORD_FILE: /run/secrets/postgres_password
+  AUTH__ACCESS_SECRET_KEY_B64_FILE: /run/secrets/access_secret_key
+  AUTH__REFRESH_PEPPER_B64_FILE: /run/secrets/refresh_pepper
+  # One origin: the edge serves the API and the frontend together, so there is
+  # no cross-origin caller to allow and no cookie domain to widen.
+  AUTH__COOKIE_DOMAIN: ""
+  AUTH__ALLOWED_ORIGINS: "[]"
+  # The model the chat, the proposals, the spec author and the summaries ask;
+  # its key is a placeholder until the operator sets the endpoint's real one.
+  LLM__API_KEY_FILE: /run/secrets/llm_api_key
+  LLM__BASE_URL: ${BI_PARAM_LLM_BASE_URL:-https://api.deepseek.com}
+  LLM__MODEL: ${BI_PARAM_LLM_MODEL:-deepseek-flash}
+  LLM__STRUCTURED: json_object
+  LLM__EXTRA: '{"thinking": {"type": "disabled"}}'
+  # The bot is off until the operator sets its token and turns it on.
+  TELEGRAM__ENABLED: ${BI_PARAM_TELEGRAM_ENABLED:-false}
+  TELEGRAM__BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+  TELEGRAM__APP_URL: ${BI_PARAM_APP_URL:-}
+
+x-backend-depends-on: &backend-depends-on
+  postgres:
+    condition: service_healthy
+
+services:
+  postgres:
+    image: ${BI_IMAGE_POSTGRES}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: bi
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      # The image's small-instance settings.
+      PG_CONF__shared_buffers: 128MB
+      PG_CONF__maintenance_work_mem: 64MB
+      PG_CONF__min_wal_size: 80MB
+      PG_CONF__max_wal_size: 1GB
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=bi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  backend:
+    image: ${BI_IMAGE_BACKEND}
+    restart: unless-stopped
+    command: ["api"]
+    environment:
+      <<: *backend-environment
+      API__PORT: 8000
+      API__WORKERS: ${BI_PARAM_API_WORKERS:-2}
+    secrets: &backend-secrets
+      - postgres_password
+      - access_secret_key
+      - refresh_pepper
+      - llm_api_key
+      - telegram_bot_token
+    depends_on: *backend-depends-on
+    healthcheck:
+      # The image has no shell, curl or wget; its own Python asks the API.
+      test: ["CMD", "/opt/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  worker:
+    image: ${BI_IMAGE_BACKEND}
+    restart: unless-stopped
+    command: ["bg"]
+    environment: *backend-environment
+    secrets: *backend-secrets
+    depends_on: *backend-depends-on
+
+  frontend:
+    image: ${BI_IMAGE_FRONTEND}
+    restart: unless-stopped
+    healthcheck:
+      # The caddy base image's health route, on the frontend's own address.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/__platform_healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  edge:
+    image: ${BI_IMAGE_CADDY}
+    restart: unless-stopped
+    environment:
+      # With --domain, HTTPS on the domain and HTTP redirected to it; without
+      # one, plain HTTP. :8081 is always plain HTTP, for morzer's checks.
+      CADDY_EDGE_ADDRESS: "${BI_DOMAIN:-:80}, :8081"
+      CADDY_AUTO_HTTPS: "on"
+      CADDY_REQUEST_BODY_MAX_SIZE: 11MiB
+      # Logs what CRS would refuse and blocks nothing, until it is tuned.
+      CADDY_WAF_ENGINE: DetectionOnly
+    ports:
+      - "${BI_PARAM_HTTP_PORT:-80}:80"
+      - "${BI_PARAM_HTTPS_PORT:-443}:443"
+      - "127.0.0.1:${BI_PARAM_HEALTH_PORT:-8081}:8081"
+    volumes:
+      - ${BI_RELEASE_DIR:?BI_RELEASE_DIR is set by morzer}/edge/bi.caddy:/etc/caddy/config.d/bi.caddy:ro
+      # Certificates: losing them means asking Let's Encrypt again.
+      - edge-data:/data
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/__platform_healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # The migrate steps. `up` leaves the `ops` profile out; morzer's
+  # `docker compose run` still reaches them.
+
+  flyway:
+    image: ${BI_IMAGE_FLYWAY}
+    profiles: [ops]
+    restart: "no"
+    command: ["migrate"]
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/bi
+      FLYWAY_USER: postgres
+      FLYWAY_PASSWORD_FILE: /run/secrets/postgres_password
+      FLYWAY_CONNECT_RETRIES: 10
+      # As bi-backend's own stack runs them: unprefixed versioned files, found
+      # by a recursive scan.
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+      FLYWAY_SQL_MIGRATION_PREFIX: ""
+      FLYWAY_SQL_MIGRATION_SUFFIXES: .sql,.psql
+      FLYWAY_OUTPUT_QUERY_RESULTS: "false"
+    secrets:
+      - postgres_password
+    volumes:
+      # The migrations ship as data in their own image, never baked into
+      # flyway's.
+      - type: image
+        source: ${BI_IMAGE_MIGRATIONS}
+        target: /flyway/sql
+        image:
+          subpath: flyway/sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  bootstrap:
+    image: ${BI_IMAGE_BACKEND}
+    profiles: [ops]
+    restart: "no"
+    command: ["bootstrap"]
+    environment:
+      <<: *backend-environment
+      # Only here and in seed: in the shared settings it would stop the backend
+      # and worker, which are never given the file.
+      APP__ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+    secrets: &bootstrap-secrets
+      - postgres_password
+      - access_secret_key
+      - refresh_pepper
+      - llm_api_key
+      - telegram_bot_token
+      - admin_password
+    depends_on: *backend-depends-on
+
+  # A dev machine's demo: the source emulators, a generated business ending
+  # yesterday, and the `seed` task's one-shot, which connects a workspace to
+  # them, loads and builds it. `up` leaves the `demo` profile out; the task's
+  # `compose run seed` starts the emulator beside it, and it stays up for the
+  # workspace's hourly loads.
+
+  emulator:
+    image: ${BI_IMAGE_BACKEND}
+    profiles: [demo]
+    restart: unless-stopped
+    command: ["emulate", "--port", "8100"]
+    healthcheck:
+      test: ["CMD", "/opt/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  seed:
+    image: ${BI_IMAGE_BACKEND}
+    profiles: [demo]
+    restart: "no"
+    command: ["seed", "--emulator", "http://emulator:8100"]
+    environment:
+      <<: *backend-environment
+      APP__ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+    secrets: *bootstrap-secrets
+    depends_on:
+      postgres:
+        condition: service_healthy
+      emulator:
+        condition: service_healthy
+
+secrets:
+  postgres_password:
+    file: ${BI_SECRETS_DIR:-/run/bi/secrets}/postgres_password
+  access_secret_key:
+    file: ${BI_SECRETS_DIR:-/run/bi/secrets}/access_secret_key
+  refresh_pepper:
+    file: ${BI_SECRETS_DIR:-/run/bi/secrets}/refresh_pepper
+  llm_api_key:
+    file: ${BI_SECRETS_DIR:-/run/bi/secrets}/llm_api_key
+  telegram_bot_token:
+    file: ${BI_SECRETS_DIR:-/run/bi/secrets}/telegram_bot_token
+  admin_password:
+    file: ${BI_SECRETS_DIR:-/run/bi/secrets}/admin_password
+
+volumes:
+  postgres-data:
+  edge-data:

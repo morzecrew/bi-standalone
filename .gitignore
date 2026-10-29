@@ -1,0 +1,6 @@
+# The bundle's build outputs: `morzer release build --version-from-git` refuses a
+# dirty bundle directory.
+SHA256SUMS*
+*.tar.zst
+images/
+.tmp/

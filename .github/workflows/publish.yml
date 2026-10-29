@@ -68,11 +68,13 @@ jobs:
       - name: Log in to ghcr
         env:
           TOKEN: ${{ github.token }}
+        run: |
           # Credentials stay under the runner's temporary directory, where the
           # container's root home does not reach.
-          DOCKER_CONFIG: ${{ runner.temp }}/docker
-        run: |
-          mkdir -p "${DOCKER_CONFIG}"
+          # A fresh directory each job: one a killed container job left
+          # root-owned is never written to again.
+          DOCKER_CONFIG=$(mktemp -d "${RUNNER_TEMP}/docker.XXXXXX")
+          export DOCKER_CONFIG
           printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           echo "DOCKER_CONFIG=${DOCKER_CONFIG}" >>"${GITHUB_ENV}"
 

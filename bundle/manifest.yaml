@@ -90,9 +90,9 @@ images:
   postgres: ghcr.io/morzecrew/postgres:18.6@sha256:4a8e0a615b016b4eca04b391a76eb98af770cae540a1fa57e1980bc9909a51de
   flyway: ghcr.io/morzecrew/flyway:13.11@sha256:82de3f12a8be91b2f588a33a26345ee7ba49797c29568b4241e4163432e0deeb
   caddy: ghcr.io/morzecrew/caddy:2.11.7@sha256:fa5515ca8c92cfc1731a518da984834ff5fceb8bf3380bf453a60f9710d47c9f
-  backend: ghcr.io/morzecrew/bi-backend:main@sha256:0000000000000000000000000000000000000000000000000000000000000000
-  migrations: ghcr.io/morzecrew/bi-migrations:main@sha256:0000000000000000000000000000000000000000000000000000000000000000
-  frontend: ghcr.io/morzecrew/bi-frontend:main@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  backend: ghcr.io/morzecrew/bi-backend:main@sha256:43eed9c31c000ef4e04a2c3aa5077ce201f2ee4ac0fa54a98220c49cd0cf313b
+  migrations: ghcr.io/morzecrew/bi-migrations:main@sha256:b0f4a0360c43c60d9f19cf8e32cef845860b0e2ca66552c0bab9cd431d376d43
+  frontend: ghcr.io/morzecrew/bi-frontend:main@sha256:20c541e4c3a4c62d2770f4388bb56d03dcdb69dabc638ecfa26758dff3ecf5cf
 secrets:
   source: /etc/bi/secrets.sops.yaml
   render_to: /run/bi/secrets
@@ -162,9 +162,9 @@ compatibility:
   # The migrations image's `tech.morze.bi.schema` label, written by
   # scripts/pin.sh; 0 until it runs. Each release reads only the schema it
   # produces.
-  database_schema_produces: 0
-  database_schema_min: 0
-  database_schema_max: 0
+  database_schema_produces: 26
+  database_schema_min: 26
+  database_schema_max: 26
   # Between two releases on one schema -- where `database_schema_min` = `max` =
   # `produces` -- morzer rolls back, and returns from a failed update by itself
   # (exit 11). Across a schema change it refuses the rollback, naming the

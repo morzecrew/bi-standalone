@@ -262,10 +262,11 @@ bot, off until you give it its token and turn it on:
 
 ```console
 sudo morzer secret set telegram_bot_token   # from @BotFather
-sudo morzer config set telegram_enabled=true app_url=https://bi.example.com
+sudo morzer config set telegram_enabled=true
 ```
 
-`app_url` is where the system is reached, for the messages' links.
+The messages link to the domain the system was installed with (`--domain`);
+without one they carry no links.
 
 ## Tasks
 

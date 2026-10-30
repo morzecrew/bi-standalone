@@ -135,6 +135,15 @@ tasks:
     args: true
     modes: [dev]
     timeout: 30m
+  # Drops the database and starts over as a first apply would. A task runs in
+  # a container, not on the host, so it cannot remove volumes; the secrets, the
+  # settings and the certificates stay.
+  reset:
+    description: "Drop every workspace, user and load, then migrate and bootstrap again; secrets and settings stay"
+    service: reset
+    command: [bootstrap]
+    modes: [dev]
+    timeout: 20m
 backup:
   volumes:
     postgres-data: {consistency: cold}

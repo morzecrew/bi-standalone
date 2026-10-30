@@ -50,6 +50,9 @@ appears in `docker inspect` or in a process's environment.
 - On a dev machine, behind the Compose profile `demo` and started only by the
   `seed` task: `emulator`, the source emulators serving a generated business
   that ends yesterday, and `seed`, the task's one-shot.
+- On a dev machine, behind the Compose profile `reset` and started only by the
+  `reset` task: `reset-wipe`, `reset-migrate` and `reset`, which drop the
+  database, migrate it and bootstrap it, in that order.
 
 ## Requirements
 
@@ -278,6 +281,7 @@ secrets, under the deployment lock, and is journaled.
 sudo morzer task list                                          # the tasks, and which this machine may run
 sudo morzer task run seed                                      # the household shop on МойСклад, Bitrix24 and Wildberries
 sudo morzer task run seed -- --account beauty --workspace beauty   # the cosmetics shop on RetailCRM and Ozon
+sudo morzer task run reset                                     # start over: an empty system with its administrator
 ```
 
 `seed` runs on a dev machine only: a production machine refuses it by name, and
@@ -290,6 +294,17 @@ wrote up to the current templates. `--account` is `shop-custom` (the default,
 with custom fields and data-quality cases), `shop-vanilla` or `beauty`;
 `--workspace` names the workspace (`demo` by default), and `--login` its
 administrator (`admin`, with `admin_password`).
+
+`reset` runs on a dev machine only, too. It starts the system over as a first
+apply would, keeping the secrets, the settings (`morzer config`) and the
+edge's certificates: it drops the database with every workspace, user, load
+and conversation in it, and the workspaces' reader roles, then migrates and
+bootstraps again, so the administrator `admin` and the workspace `demo` are
+back, empty. A task runs in a container, not on the host, so it empties the
+`postgres-data` volume's database rather than removing the volume. The
+backend and the worker keep running: the reset ends their database sessions,
+and the first few requests after it may fail while they reconnect. Run `seed`
+again for a demo workspace.
 
 ## Updating
 
@@ -481,7 +496,7 @@ sudo morzer apply
 bundle-ci's `rehearse.sh` rehearses on a workstation what CI's smoke jobs prove
 on the runner — install the published bundle, run the smoke hooks in
 `.github/smoke.d` (the task listing, a backup and restore, the database
-password rotation), update to the working tree's `bundle/`, and roll back —
+password rotation, the reset), update to the working tree's `bundle/`, and roll back —
 before a pull request is opened. `just rehearse` runs it from a bundle-ci
 checkout (`BUNDLE_CI`, or `../bundle-ci`):
 

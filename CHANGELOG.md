@@ -24,10 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The dev-only task `seed` (`morzer task run seed -- --account beauty`), which
   starts the source emulators beside it and builds a demo workspace from two
   years of a generated business.
+- The dev-only task `reset` (`morzer task run reset`), which drops the
+  database and the workspaces' roles, then migrates and bootstraps again: an
+  empty system with its administrator, the secrets and settings kept.
 - CI: the components' `main` digests pinned on every publish (or every six
   hours), the bundle built, signed with the dev key, smoke-tested in dind rigs
   (install, task listing, backup and restore, database password rotation,
-  update and rollback) and published to `ghcr.io/morzecrew/bi-standalone` as
+  reset, update and rollback) and published to `ghcr.io/morzecrew/bi-standalone` as
   `:main`; a `vX.Y.Z` tag publishes the release `X.Y.Z`, signed with the
   release key, and moves `:stable`. A release ships the component images a dev
   build pinned and the dev VM ran, and tags each `bundle-X.Y.Z` so the

@@ -146,7 +146,7 @@ services:
   # The migrate steps. `up` leaves the `ops` profile out; morzer's
   # `docker compose run` still reaches them.
 
-  flyway:
+  flyway: &flyway
     image: ${BI_IMAGE_FLYWAY}
     profiles: [ops]
     restart: "no"
@@ -176,7 +176,7 @@ services:
       postgres:
         condition: service_healthy
 
-  bootstrap:
+  bootstrap: &bootstrap
     image: ${BI_IMAGE_BACKEND}
     profiles: [ops]
     restart: "no"
@@ -194,6 +194,47 @@ services:
       - telegram_bot_token
       - admin_password
     depends_on: *backend-depends-on
+
+  # A dev machine's fresh start, the `reset` task: drop the database and the
+  # workspaces' reader roles, then migrate and bootstrap again, each step after
+  # the one before. The secrets, the configuration and edge-data's certificates
+  # stay. Its own profile, never `ops`: nothing but the task's `compose run
+  # reset` may start `reset-wipe`. The backend and worker keep running; FORCE
+  # ends their sessions, and their pools reconnect to the new database.
+
+  reset-wipe:
+    image: ${BI_IMAGE_POSTGRES}
+    profiles: [reset]
+    restart: "no"
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        PGPASSWORD=$$(cat /run/secrets/postgres_password)
+        export PGPASSWORD
+        psql --host=postgres --username=postgres --dbname=postgres -v ON_ERROR_STOP=1 <<'SQL'
+        DROP DATABASE IF EXISTS bi WITH (FORCE);
+        SELECT format('DROP ROLE %I', rolname) FROM pg_roles WHERE rolname ~ '^t[0-9a-f]{32}_reader$$' \gexec
+        CREATE DATABASE bi;
+        SQL
+    secrets:
+      - postgres_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  reset-migrate:
+    <<: *flyway
+    profiles: [reset]
+    depends_on:
+      reset-wipe:
+        condition: service_completed_successfully
+
+  reset:
+    <<: *bootstrap
+    profiles: [reset]
+    depends_on:
+      reset-migrate:
+        condition: service_completed_successfully
 
   # A dev machine's demo: the source emulators, a generated business ending
   # yesterday, and the `seed` task's one-shot, which connects a workspace to

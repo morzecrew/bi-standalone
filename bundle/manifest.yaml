@@ -85,9 +85,9 @@ images:
   postgres: ghcr.io/morzecrew/postgres:18.6@sha256:4a8e0a615b016b4eca04b391a76eb98af770cae540a1fa57e1980bc9909a51de
   flyway: ghcr.io/morzecrew/flyway:13.11@sha256:82de3f12a8be91b2f588a33a26345ee7ba49797c29568b4241e4163432e0deeb
   caddy: ghcr.io/morzecrew/caddy:2.11.7@sha256:fa5515ca8c92cfc1731a518da984834ff5fceb8bf3380bf453a60f9710d47c9f
-  backend: ghcr.io/morzecrew/bi-backend:main@sha256:fd84c1f67a1abc6f56127197cffec7e7cd82760a172112eb9244a746608f335b
+  backend: ghcr.io/morzecrew/bi-backend:main@sha256:4981453a13d832b4273c3dcdc183e15e35035db5657788103ae7b688ed0b36c3
   migrations: ghcr.io/morzecrew/bi-migrations:main@sha256:36d8e5ad678c2c6045474b3664bd46f392c35cc4a1c5d204cb0203a4f3af4637
-  frontend: ghcr.io/morzecrew/bi-frontend:main@sha256:8d500ac8f3e743c6edd8943e3c8e9365eb5394ea1c1537360bd176471530df2c
+  frontend: ghcr.io/morzecrew/bi-frontend:main@sha256:cff65398b6de13cab62d631b54b7e21ef0c50d96c78ec22c27f57094ba2e77dc
 secrets:
   source: /etc/bi/secrets.sops.yaml
   render_to: /run/bi/secrets

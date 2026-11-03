@@ -8,8 +8,13 @@ worker), bi-frontend, Postgres, and one Caddy edge serving them on one origin.
 - First bundle. `apply` migrates with flyway from the migrations image, then
   runs the backend's `bootstrap`, which keeps the administrator and workspace
   that exist.
+- The workspaces' lakes now live in the `lake-data` volume, which the worker
+  writes and the API reads; backups take it cold with the database. Lakes an
+  earlier bundle built stayed inside the worker's container, so the API
+  could not read them: reset a dev machine after updating.
 - On a dev machine, `morzer task run reset` starts over: the database dropped,
-  migrated and bootstrapped again, the secrets and settings kept.
+  the lakes' volume emptied, migrated and bootstrapped again, the secrets and
+  settings kept.
 
 ## Before you install
 

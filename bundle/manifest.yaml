@@ -135,9 +135,9 @@ tasks:
     args: true
     modes: [dev]
     timeout: 30m
-  # Drops the database and starts over as a first apply would. A task runs in
-  # a container, not on the host, so it cannot remove volumes; the secrets, the
-  # settings and the certificates stay.
+  # Drops the database, empties the lakes' volume and starts over as a first
+  # apply would. A task runs in a container, not on the host, so it cannot
+  # remove volumes; the secrets, the settings and the certificates stay.
   reset:
     description: "Drop every workspace, user and load, then migrate and bootstrap again; secrets and settings stay"
     service: reset
@@ -147,6 +147,9 @@ tasks:
 backup:
   volumes:
     postgres-data: {consistency: cold}
+    # The workspaces' lakes, whose catalogs are in postgres-data: both cold, so
+    # a restore brings back files and catalogs from the same moment.
+    lake-data: {consistency: cold}
     # Certificates and ACME state, written once and read back.
     edge-data: {consistency: hot}
 # Both on the edge's loopback health port, which always serves plain HTTP.

@@ -86,6 +86,11 @@ services:
       - refresh_pepper
       - llm_api_key
       - telegram_bot_token
+    # The workspaces' silver and gold, each a DuckLake: its catalog in Postgres,
+    # its files here. The worker writes them, the API reads them, and bootstrap
+    # and seed build them too, so every one of them mounts the same volume.
+    volumes: &lake-volumes
+      - lake-data:/var/lib/bi/lake
     depends_on: *backend-depends-on
     healthcheck:
       # The image has no shell, curl or wget; its own Python asks the API.
@@ -101,6 +106,7 @@ services:
     command: ["bg"]
     environment: *backend-environment
     secrets: *backend-secrets
+    volumes: *lake-volumes
     depends_on: *backend-depends-on
 
   frontend:
@@ -193,12 +199,13 @@ services:
       - llm_api_key
       - telegram_bot_token
       - admin_password
+    volumes: *lake-volumes
     depends_on: *backend-depends-on
 
   # A dev machine's fresh start, the `reset` task: drop the database and the
-  # workspaces' reader roles, then migrate and bootstrap again, each step after
-  # the one before. The secrets, the configuration and edge-data's certificates
-  # stay. Its own profile, never `ops`: nothing but the task's `compose run
+  # workspaces' reader roles, empty the lakes' volume, then migrate and
+  # bootstrap again, each step after the one before. The secrets, the
+  # configuration and edge-data's certificates stay. Its own profile, never `ops`: nothing but the task's `compose run
   # reset` may start `reset-wipe`. The backend and worker keep running; FORCE
   # ends their sessions, and their pools reconnect to the new database.
 
@@ -216,8 +223,13 @@ services:
         SELECT format('DROP ROLE %I', rolname) FROM pg_roles WHERE rolname ~ '^t[0-9a-f]{32}_reader$$' \gexec
         CREATE DATABASE bi;
         SQL
+        find /lake -mindepth 1 -delete
     secrets:
       - postgres_password
+    # Their catalogs went with the database; the volume's root stays, owned by
+    # the backend's user.
+    volumes:
+      - lake-data:/lake
     depends_on:
       postgres:
         condition: service_healthy
@@ -263,6 +275,7 @@ services:
       <<: *backend-environment
       APP__ADMIN_PASSWORD_FILE: /run/secrets/admin_password
     secrets: *bootstrap-secrets
+    volumes: *lake-volumes
     depends_on:
       postgres:
         condition: service_healthy
@@ -285,4 +298,5 @@ secrets:
 
 volumes:
   postgres-data:
+  lake-data:
   edge-data:

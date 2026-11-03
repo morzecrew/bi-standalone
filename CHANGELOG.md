@@ -12,8 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `bi` release bundle: a morzer `application-release` (`selfhost/v1alpha1`,
   morzer 0.8.0 or later) that deploys the whole BI system on one Linux machine —
   `bi-backend` (API and worker), `bi-frontend`, Postgres 18.6 and a Caddy edge
-  serving the API and the frontend on one origin. `apply` sets the database
-  password, migrates with flyway from the migrations image, runs the backend's
+  serving the API and the frontend on one origin. The worker writes the
+  workspaces' lakes into the `lake-data` volume, which the API reads and
+  backups take cold with the database. `apply` sets the database password,
+  migrates with flyway from the migrations image, runs the backend's
   `bootstrap` and records the schema; a smoke test probes the edge, the API and
   the frontend.
 - Parameters for the ports, the API's workers, the log level, the model
@@ -25,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   starts the source emulators beside it and builds a demo workspace from two
   years of a generated business.
 - The dev-only task `reset` (`morzer task run reset`), which drops the
-  database and the workspaces' roles, then migrates and bootstraps again: an
+  database and the workspaces' roles, empties the lakes' volume, then migrates
+  and bootstraps again: an
   empty system with its administrator, the secrets and settings kept.
 - CI: the components' `main` digests pinned on every publish (or every six
   hours), the bundle built, signed with the dev key, smoke-tested in dind rigs

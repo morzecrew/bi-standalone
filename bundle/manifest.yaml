@@ -87,7 +87,7 @@ images:
   caddy: ghcr.io/morzecrew/caddy:2.11.7@sha256:fa5515ca8c92cfc1731a518da984834ff5fceb8bf3380bf453a60f9710d47c9f
   backend: ghcr.io/morzecrew/bi-backend:main@sha256:21d32448eb8f20f7567cf25180a40f6770660047eedf56ec936f031ef88cdae3
   migrations: ghcr.io/morzecrew/bi-migrations:main@sha256:c0741c5736c5c0c5a42cfc37d8789e4051df2751303b9fa6c292c01876f4f145
-  frontend: ghcr.io/morzecrew/bi-frontend:main@sha256:752820bf20acd5733f4e1240decae76a7974abea09d3acbf84aaff5b44489ab6
+  frontend: ghcr.io/morzecrew/bi-frontend:main@sha256:048b9c6dfa7b97b1f498984b3b67bf5db958a095afd18fd0d1103ed2d0d509ae
 secrets:
   source: /etc/bi/secrets.sops.yaml
   render_to: /run/bi/secrets

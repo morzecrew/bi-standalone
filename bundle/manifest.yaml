@@ -85,7 +85,7 @@ images:
   postgres: ghcr.io/morzecrew/postgres:18.6@sha256:4a8e0a615b016b4eca04b391a76eb98af770cae540a1fa57e1980bc9909a51de
   flyway: ghcr.io/morzecrew/flyway:13.11@sha256:82de3f12a8be91b2f588a33a26345ee7ba49797c29568b4241e4163432e0deeb
   caddy: ghcr.io/morzecrew/caddy:2.11.7@sha256:fa5515ca8c92cfc1731a518da984834ff5fceb8bf3380bf453a60f9710d47c9f
-  backend: ghcr.io/morzecrew/bi-backend:main@sha256:36d3fb74816c4c33a6df973ae7fcc0b31cdce8cbe8d6bdf3d760b947e3c3061f
+  backend: ghcr.io/morzecrew/bi-backend:main@sha256:968c8be15f009341b2460e096afc332b2bc6980d9e1be03c728a04361057e1fd
   migrations: ghcr.io/morzecrew/bi-migrations:main@sha256:f7353c457d59fea6c1c1123f1b403c9ab202bb0bea7c0daf2fba32108e2b0fb4
   frontend: ghcr.io/morzecrew/bi-frontend:main@sha256:d56c3d007c2618e3730f114177518f137a829c3e5767a30a9bcd1dd5c13da623
 secrets:
